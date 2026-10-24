@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Official Credential Verification Portal</title>
+    <style>
+        :root {
+            --primary: #0f172a;
+            --accent: #2563eb;
+            --background: #f8fafc;
+            --surface: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --error: #dc2626;
+            --success: #16a34a;
+            --border: #e2e8f0;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: var(--background); color: var(--text-main); display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        .verification-card { background: var(--surface); padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(15, 23, 42, 0.05); border: 1px solid var(--border); width: 100%; max-width: 440px; text-align: center; }
+        h2 { font-size: 24px; font-weight: 700; color: var(--primary); margin: 0 0 10px 0; letter-spacing: -0.5px; }
+        .subtitle { font-size: 14px; color: var(--text-muted); margin-bottom: 30px; line-height: 1.5; }
+        .input-group { position: relative; margin-bottom: 20px; }
+        input[type="text"] { width: 100%; padding: 14px 16px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; font-size: 15px; transition: border-color 0.2s ease; color: var(--text-main); }
+        input[type="text"]:focus { outline: none; border-color: var(--accent); }
+        button { background-color: var(--accent); color: white; border: none; width: 100%; padding: 14px; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease; }
+        button:hover { background-color: #1d4ed8; }
+        button:disabled { background-color: var(--text-muted); cursor: not-allowed; }
+        .error-message { color: var(--error); font-size: 14px; font-weight: 500; margin-top: 20px; display: none; line-height: 1.4; text-align: left; padding: 12px; background: #fef2f2; border-radius: 6px; border: 1px solid #fca5a5; }
+        .profile-display { margin-top: 30px; padding: 24px; border: 1px solid var(--border); border-radius: 8px; display: none; text-align: left; background: #fafafa; }
+        .profile-display h3 { margin: 0 0 15px 0; color: var(--primary); font-size: 18px; font-weight: 600; border-bottom: 2px solid var(--border); padding-bottom: 8px; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; line-height: 1.5; gap: 16px; }
+        .data-label { color: var(--text-muted); font-weight: 500; flex-shrink: 0; }
+        .data-value { color: var(--text-main); font-weight: 600; text-align: right; word-break: break-word; }
+        .action-link { display: block; text-align: center; margin-top: 20px; color: var(--accent); text-decoration: none; font-weight: 600; font-size: 14px; padding: 10px; border: 1px solid var(--accent); border-radius: 6px; transition: all 0.2s ease; }
+        .action-link:hover { background-color: var(--accent); color: white; }
+    </style>
+</head>
+<body>
+
+<div class="verification-card">
+    <h2>Verify Digital Credential</h2>
+    <p class="subtitle">Enter the unique alpha-numeric certificate identifier issued by our organization to validate recipient profile details and authenticity.</p>
+
+    <div class="input-group">
+        <input type="text" id="credentialIdInput" placeholder="Enter Certificate ID Key" autocomplete="off">
+    </div>
+    <button id="searchBtn" onclick="verifyCredential()">Verify Authenticity</button>
+
+    <div id="errorBox" class="error-message"></div>
+
+    <div id="profileBox" class="profile-display">
+        <h3>Verified Record</h3>
+        <div class="data-row">
+            <span class="data-label">Recipient Name:</span>
+            <span id="resName" class="data-value"></span>
+        </div>
+        <div class="data-row">
+            <span class="data-label">Course / Program:</span>
+            <span id="resCourse" class="data-value"></span>
+        </div>
+        <div class="data-row">
+            <span class="data-label">Date of Issuance:</span>
+            <span id="resDate" class="data-value"></span>
+        </div>
+        <div class="data-row">
+            <span class="data-label">Status:</span>
+            <span id="resStatus" class="data-value"></span>
+        </div>
+        <a id="resLink" href="#" target="_blank" rel="noopener" class="action-link" style="display:none;">View Certificate</a>
+    </div>
+</div>
+
+<script>
+// Absolute val API URL, so this page works whether it is served from the val
+// itself (same origin) or from GitHub Pages / any other host (cross-origin).
+const REMOTE_API =
+    "https://omega_project--9b17f96ecfa411f1ac9b1607ee4eb77e.web.val.run/api";
+const API_BASE = REMOTE_API;
+
+// Certifier renamed these fields over time; accept either shape.
+function first(...vals) {
+    for (const v of vals) {
+        if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return null;
+}
+
+function formatDate(value) {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
+async function verifyCredential() {
+    const idInput = document.getElementById("credentialIdInput").value.trim();
+    const profileBox = document.getElementById("profileBox");
+    const errorBox = document.getElementById("errorBox");
+    const searchBtn = document.getElementById("searchBtn");
+
+    profileBox.style.display = "none";
+    errorBox.style.display = "none";
+
+    if (!idInput) return;
+
+    searchBtn.disabled = true;
+    searchBtn.innerText = "Processing Request...";
+
+    try {
+        const response = await fetch(`${API_BASE}?id=${encodeURIComponent(idInput)}`);
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+            throw new Error(result.error || "Verification failed. Unknown exception encountered.");
+        }
+
+        const d = result.data;
+        // Logged so you can confirm Certifier's real field names in devtools.
+        console.debug("Certifier payload:", d);
+
+        document.getElementById("resName").innerText =
+            first(d.recipient && d.recipient.name, d.recipientName) ?? "—";
+
+        document.getElementById("resCourse").innerText =
+            first(
+                d.group && d.group.name,
+                d.groupName,
+                d.customAttributes && d.customAttributes.Course,
+                d.attributes && d.attributes.Course,
+            ) ?? "—";
+
+        document.getElementById("resDate").innerText =
+            formatDate(first(d.issueDate, d.issuedAt, d.createdAt));
+
+        // Status is derived, never assumed. The old markup hardcoded a green
+        // "Valid & Active" regardless of what Certifier actually returned.
+        const statusText = String(first(d.status, "unknown"));
+        const expired = d.expiryDate && new Date(d.expiryDate) < new Date();
+        const statusEl = document.getElementById("resStatus");
+        if (expired) {
+            statusEl.innerText = "Expired";
+            statusEl.style.color = "var(--error)";
+        } else {
+            statusEl.innerText = statusText.charAt(0).toUpperCase() + statusText.slice(1);
+            statusEl.style.color = statusText.toLowerCase() === "issued"
+                ? "var(--success)"
+                : "var(--text-muted)";
+        }
+
+        const docUrl = first(d.pdfUrl, d.credentialUrl, d.url);
+        const linkEl = document.getElementById("resLink");
+        if (docUrl) {
+            linkEl.href = docUrl;
+            linkEl.style.display = "block";
+        } else {
+            linkEl.style.display = "none";
+        }
+
+        profileBox.style.display = "block";
+    } catch (error) {
+        errorBox.innerText = error.message ||
+            "Unable to process verification. Please verify the ID format and try again.";
+        errorBox.style.display = "block";
+    } finally {
+        searchBtn.disabled = false;
+        searchBtn.innerText = "Verify Authenticity";
+    }
+}
+
+document.getElementById("credentialIdInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") verifyCredential();
+});
+</script>
+<script src="https://esm.town/v/std/catch"></script>
+
+</body>
+</html>
